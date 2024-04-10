@@ -39,7 +39,12 @@ func TestParser(t *testing.T) {
 		log.Fatalf("unable to read file: %v", err)
 	}
 
-	result, err := parser.Parse(context.Background(), body)
+	chunker, err := parser.DetectLanguageFromFile("treesitter_test.go")
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	result, err := parser.Parse(context.Background(), chunker, body)
 	if err != nil {
 		log.Fatalf("unable to parse file: %v", err)
 	}

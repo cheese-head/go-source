@@ -3,10 +3,10 @@ package parser
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 
 	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/golang"
 )
 
 type Parser interface {
@@ -57,38 +57,35 @@ func collectPrevSiblingComments(node *sitter.Node, input []byte) (sitter.Point, 
 		point = prev.StartPoint()
 		prev = prev.PrevNamedSibling()
 	}
+
+	prev = node.PrevNamedSibling()
+	for prev != nil {
+		slog.Debug(prev.Type())
+		prev = prev.PrevNamedSibling()
+	}
 	return point, b
 }
-func ParseFile(ctx context.Context, path string) (*Result, error) {
+func ParseFile(ctx context.Context, chunker Chunker, path string) (*Result, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	result, err := Parse(ctx, data)
+	result, err := Parse(ctx, chunker, data)
 	if err != nil {
 		return nil, err
 	}
 	result.File = path
 	return result, nil
 }
-func Parse(ctx context.Context, input []byte) (*Result, error) {
+func Parse(ctx context.Context, chunker Chunker, input []byte) (*Result, error) {
 	parser := sitter.NewParser()
-	parser.SetLanguage(golang.GetLanguage())
+	parser.SetLanguage(chunker.GetLanguage())
 	tree, err := parser.ParseCtx(ctx, nil, input)
 	if err != nil {
 		return nil, err
 	}
 	n := tree.RootNode()
-	queryText := `
-	(function_declaration) @func
-	(type_declaration
-		(type_spec
-		  (type_identifier))) @type_declaration
-	(method_declaration) @method_receiver
-	(import_declaration) @imports
-	(package_clause (package_identifier)) @package
-`
-	q, _ := sitter.NewQuery([]byte(queryText), golang.GetLanguage())
+	q, _ := sitter.NewQuery([]byte(chunker.Query()), chunker.GetLanguage())
 	qc := sitter.NewQueryCursor()
 
 	qc.Exec(q, n)
@@ -99,45 +96,23 @@ func Parse(ctx context.Context, input []byte) (*Result, error) {
 		if !ok {
 			break
 		}
+		m = qc.FilterPredicates(m, input)
+		slog.Debug("new match", slog.Attr{Key: "match", Value: slog.AnyValue(m)})
 		for _, c := range m.Captures {
 			node := c.Node
 			if node == nil {
+				slog.Warn("missing node")
 				return nil, errors.New("missing node")
 			}
-			// 			if node.IsNamed() {
-			// 				fmt.Printf(`
-			// ------------------------
-			// 	Named Node Found:
-			// 	node type		: %v
-			// 	node prev		: %v
-			// 	node next		: %v
-			// 	node child_count: %v
-			// ------------------------
 
-			// 	`, node.Type(), node.PrevNamedSibling(), node.NextNamedSibling(), node.ChildCount())
-			// 			}
-
-			if node.Type() == "package_clause" {
-				if node.ChildCount() == 2 {
-					result.Package = node.Child(1).Content(input)
-				}
+			pkg := chunker.GetPackage(node, input)
+			if pkg != "" {
+				result.Package = pkg
 			}
-			if node.Type() == "function_declaration" ||
-				node.Type() == "method_declaration" ||
-				node.Type() == "type_declaration" {
 
-				// check to see if the parent is a comment, if it is a comment, iterate over the previous comments, and "attach" it to this node
-				startPoint, startComment := collectPrevSiblingComments(node, input)
-				end := node.EndByte()
-
-				chunk := Chunk{
-					StartByte:  startComment,
-					EndByte:    end,
-					StartPoint: Point{Row: startPoint.Row, Col: startPoint.Column},
-					EndPoint:   Point{Row: node.EndPoint().Row, Col: node.EndPoint().Column},
-					Content:    input[startComment:end],
-				}
-				result.Chunks = append(result.Chunks, chunk)
+			chunk, err := chunker.ChunkNode(node, input)
+			if err == nil {
+				result.Chunks = append(result.Chunks, *chunk)
 			}
 		}
 	}

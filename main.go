@@ -11,9 +11,12 @@ import (
 func main() {
 
 	app := &cli.App{
-		Name: "go-source",
+		Name:        "go-source",
+		Description: "A tool for parsing and chunking source code",
 		Commands: []*cli.Command{
 			cmd.Chunk(),
+			cmd.Read(),
+			cmd.Server(),
 		},
 	}
 
