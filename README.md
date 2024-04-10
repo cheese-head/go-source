@@ -13,7 +13,7 @@ go build -o go-source
 ```bash
 ./go-source --help
 NAME:
-   go-source - A new cli application
+   go-source - Chunk source code
 
 USAGE:
    go-source [global options] command [command options] 

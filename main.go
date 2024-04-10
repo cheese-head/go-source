@@ -12,6 +12,7 @@ func main() {
 
 	app := &cli.App{
 		Name:        "go-source",
+		Usage:       "Chunk source code",
 		Description: "A tool for parsing and chunking source code",
 		Commands: []*cli.Command{
 			cmd.Chunk(),
